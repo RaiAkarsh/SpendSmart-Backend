@@ -10,18 +10,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.HashMap;
 import java.util.Map;
 
-/*
- * AUTH CONTROLLER
- * ---------------
- * Entry point for all HTTP requests to auth-service.
- *
- * @RestController  = handles HTTP requests, returns JSON automatically
- * @RequestMapping  = all endpoints here start with /auth
- *
- * All endpoints return ResponseEntity<?> which lets us set:
- *   - HTTP status code (200, 201, 400, 404)
- *   - Response body (user JSON or error message)
- */
+
 @RestController
 @RequestMapping("/auth")
 public class AuthController {
