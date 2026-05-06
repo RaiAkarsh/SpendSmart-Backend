@@ -1,22 +1,38 @@
 package com.spendsmart.category.serviceimpl;
 
+import com.spendsmart.category.client.BudgetClient;
+import com.spendsmart.category.dto.BudgetSyncRequest;
 import com.spendsmart.category.entity.Category;
 import com.spendsmart.category.repository.CategoryRepository;
 import com.spendsmart.category.service.CategoryService;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.security.Keys;
+import feign.FeignException;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
+import javax.crypto.SecretKey;
+import java.time.LocalDate;
+import java.util.Date;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 
 @Service
 public class CategoryServiceImpl implements CategoryService {
 
     @Autowired
     private CategoryRepository categoryRepository;
+
+    @Autowired
+    private BudgetClient budgetClient;
+
+    @Value("${jwt.secret}")
+    private String secret;
 
     //createCategory
 
@@ -34,7 +50,9 @@ public class CategoryServiceImpl implements CategoryService {
         }
   
         category.setDefault(false);   
-        return categoryRepository.save(category);
+        Category saved = categoryRepository.save(category);
+        syncBudgetForCategory(saved);
+        return saved;
     }
 
     //getByUserId
@@ -94,7 +112,9 @@ public class CategoryServiceImpl implements CategoryService {
             existing.setBudgetLimit(updatedCategory.getBudgetLimit());
         }
 
-        return categoryRepository.save(existing);
+        Category saved = categoryRepository.save(existing);
+        syncBudgetForCategory(saved);
+        return saved;
     }
 
     //deleteCategory
@@ -159,7 +179,8 @@ public class CategoryServiceImpl implements CategoryService {
     public void setCategoryBudget(int categoryId, double budgetLimit) {
         Category category = getCategoryById(categoryId);
         category.setBudgetLimit(budgetLimit);
-        categoryRepository.save(category);
+        Category saved = categoryRepository.save(category);
+        syncBudgetForCategory(saved);
     }
 
     //getCategoryCount
@@ -167,5 +188,74 @@ public class CategoryServiceImpl implements CategoryService {
     @Cacheable(cacheNames = "categories", key = "'count:' + #userId")
     public int getCategoryCount(int userId) {
         return categoryRepository.countByUserId(userId);
+    }
+
+    private void syncBudgetForCategory(Category category) {
+        try {
+            if (!"EXPENSE".equalsIgnoreCase(category.getType())) {
+                return;
+            }
+
+            String authorization = buildAuthorizationHeader(category.getUserId());
+            Integer existingBudgetId = findActiveBudgetId(category.getUserId(), category.getCategoryId(), authorization);
+
+            if (category.getBudgetLimit() <= 0) {
+                if (existingBudgetId != null) {
+                    budgetClient.deactivateBudget(existingBudgetId, authorization);
+                }
+                return;
+            }
+
+            BudgetSyncRequest request = new BudgetSyncRequest();
+            request.setUserId(category.getUserId());
+            request.setCategoryId(category.getCategoryId());
+            request.setName(category.getName() + " Budget");
+            request.setLimitAmount(category.getBudgetLimit());
+            request.setCurrency("INR");
+            request.setPeriod("MONTHLY");
+            request.setStartDate(LocalDate.now().withDayOfMonth(1));
+            request.setEndDate(LocalDate.now().withDayOfMonth(LocalDate.now().lengthOfMonth()));
+            request.setAlertThreshold(80);
+
+            if (existingBudgetId == null) {
+                budgetClient.createBudget(request, authorization);
+            } else {
+                budgetClient.updateBudget(existingBudgetId, request, authorization);
+            }
+        } catch (Exception e) {
+            System.err.println("Budget sync skipped for categoryId=" + category.getCategoryId()
+                    + ": " + e.getMessage());
+        }
+    }
+
+    private Integer findActiveBudgetId(int userId, int categoryId, String authorization) {
+        try {
+            Map<String, Object> budget = budgetClient.getActiveBudgetByCategory(userId, categoryId, authorization);
+            Object rawBudgetId = budget.get("budgetId");
+            if (rawBudgetId instanceof Number number) {
+                return number.intValue();
+            }
+            return null;
+        } catch (FeignException.NotFound e) {
+            return null;
+        }
+    }
+
+    private String buildAuthorizationHeader(int userId) {
+        return "Bearer " + generateServiceToken(userId);
+    }
+
+    private String generateServiceToken(int userId) {
+        return Jwts.builder()
+                .subject("category-service")
+                .claim("userId", userId)
+                .issuedAt(new Date())
+                .expiration(new Date(System.currentTimeMillis() + 3600000))
+                .signWith(getSigningKey())
+                .compact();
+    }
+
+    private SecretKey getSigningKey() {
+        return Keys.hmacShaKeyFor(secret.getBytes());
     }
 }
