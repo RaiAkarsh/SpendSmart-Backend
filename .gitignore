@@ -1,0 +1,70 @@
+# ========================
+# Java / Maven Build
+# ========================
+**/target/
+**/*.class
+**/*.jar
+**/*.war
+**/*.ear
+**/*.log
+**/hs_err_pid*
+**/replay_pid*
+
+# ========================
+# Maven Wrapper
+# ========================
+.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+# ========================
+# IDE - IntelliJ IDEA
+# ========================
+.idea/
+**/.idea/
+**/*.iml
+**/*.iws
+**/*.ipr
+**/out/
+
+# ========================
+# IDE - VS Code
+# ========================
+.vscode/
+**/.vscode/
+
+# ========================
+# IDE - Eclipse
+# ========================
+.project
+.classpath
+.settings/
+**/.project
+**/.classpath
+**/.settings/
+**/bin/
+
+# ========================
+# OS Generated Files
+# ========================
+.DS_Store
+**/.DS_Store
+Thumbs.db
+**/Thumbs.db
+desktop.ini
+**/desktop.ini
+
+# ========================
+# Environment / Secrets
+# ========================
+**/.env
+**/.env.local
+**/.env.*.local
+
+# ========================
+# Temporary / Backup Files
+# ========================
+*.tmp
+*.bak
+*.swp
+*~

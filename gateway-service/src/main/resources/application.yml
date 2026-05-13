@@ -1,0 +1,228 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: gateway-service
+
+  cloud:
+    gateway:
+
+      # ══════════════════════════════════════════════════════════════════════
+      #  THE CORS DUPLICATE HEADER FIX
+      # ══════════════════════════════════════════════════════════════════════
+      #
+      #  ERROR:  "The 'Access-Control-Allow-Origin' header contains multiple
+      #           values 'http://localhost:4200, http://localhost:4200',
+      #           but only one is allowed."
+      #
+      #  WHY IT HAPPENS:
+      #    Each microservice has its own SecurityConfig that sets:
+      #      config.setAllowedOriginPatterns(List.of("*"))
+      #    This adds:  Access-Control-Allow-Origin: http://localhost:4200
+      #
+      #    The gateway's globalcors ALSO adds:
+      #      Access-Control-Allow-Origin: http://localhost:4200
+      #
+      #    Browser receives BOTH headers on the same response → rejects it.
+      #
+      #  FIX — Two-pronged approach:
+      #
+      #  1. default-filters: DedupeResponseHeader
+      #     Spring Cloud Gateway built-in filter. When it sees duplicate
+      #     CORS headers in the response, it keeps only ONE value.
+      #     "RETAIN_FIRST" = keep the first one, drop the duplicate.
+      #
+      #  2. Remove globalcors entirely (optional but cleaner)
+      #     Since all 8 microservices already handle CORS themselves,
+      #     the gateway doesn't need to add CORS headers again.
+      #     Instead, we ONLY use DedupeResponseHeader as a safety net.
+      #
+      #  WHY NOT just disable CORS on all microservices?
+      #     You'd have to modify and recompile all 8 services.
+      #     DedupeResponseHeader fixes it at the gateway with zero changes
+      #     to the microservices.
+      # ══════════════════════════════════════════════════════════════════════
+
+      # ── Default filters applied to EVERY route ─────────────────────────
+      default-filters:
+        # THE KEY FIX: deduplicate CORS headers before sending to browser.
+        # Both headers are listed because both can be duplicated.
+        - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin, RETAIN_FIRST
+
+      # ── Global CORS — now uses allowedOriginPatterns to match the wildcard
+      #    that the microservices use. This ensures OPTIONS preflight is
+      #    handled correctly even when the downstream service doesn't respond
+      #    fast enough.
+      globalcors:
+        corsConfigurations:
+          '[/**]':
+            allowedOriginPatterns:
+              - "*"
+            allowedMethods:
+              - GET
+              - POST
+              - PUT
+              - DELETE
+              - OPTIONS
+            allowedHeaders:
+              - "*"
+            allowCredentials: true
+            maxAge: 3600
+
+      # ══════════════════════════════════════════════════════════════════════
+      #  SERVICE DISCOVERY
+      #  discovery.locator.enabled: true allows Gateway to auto-create
+      #  routes from Eureka registry. We keep explicit routes for
+      #  path rewriting, but use lb:// URIs for load-balanced routing.
+      # ══════════════════════════════════════════════════════════════════════
+      discovery:
+        locator:
+          enabled: true
+          lower-case-service-id: true
+
+      # ══════════════════════════════════════════════════════════════════════
+      #  ROUTES
+      #  Each service has TWO routes:
+      #   - Base route  (exact path, no slash) → fixes 500 on POST /api/xxx
+      #   - Sub route   (wildcard **)          → handles all other requests
+      #
+      #  Routes are matched in ORDER — base route MUST come first.
+      #  Using lb:// (load-balanced) URIs via Eureka service discovery.
+      # ══════════════════════════════════════════════════════════════════════
+
+      routes:
+
+        # ── AUTH SERVICE (8081) ────────────────────────────────────────────
+        # Auth only has sub-paths (/auth/register, /auth/login) — no base POST
+        - id: auth-service
+          uri: lb://auth-service
+          predicates:
+            - Path=/api/auth/**
+          filters:
+            - RewritePath=/api/auth/(?<segment>.*), /auth/${segment}
+
+        # ── EXPENSE SERVICE (8082) ─────────────────────────────────────────
+        - id: expense-service-base
+          uri: lb://expense-service
+          predicates:
+            - Path=/api/expenses
+          filters:
+            - RewritePath=/api/expenses, /expenses
+
+        - id: expense-service
+          uri: lb://expense-service
+          predicates:
+            - Path=/api/expenses/**
+          filters:
+            - RewritePath=/api/expenses/(?<segment>.*), /expenses/${segment}
+
+        # ── INCOME SERVICE (8083) ──────────────────────────────────────────
+        - id: income-service-base
+          uri: lb://income-service
+          predicates:
+            - Path=/api/incomes
+          filters:
+            - RewritePath=/api/incomes, /incomes
+
+        - id: income-service
+          uri: lb://income-service
+          predicates:
+            - Path=/api/incomes/**
+          filters:
+            - RewritePath=/api/incomes/(?<segment>.*), /incomes/${segment}
+
+        # ── CATEGORY SERVICE (8084) ────────────────────────────────────────
+        - id: category-service-base
+          uri: lb://category-service
+          predicates:
+            - Path=/api/categories
+          filters:
+            - RewritePath=/api/categories, /categories
+
+        - id: category-service
+          uri: lb://category-service
+          predicates:
+            - Path=/api/categories/**
+          filters:
+            - RewritePath=/api/categories/(?<segment>.*), /categories/${segment}
+
+        # ── BUDGET SERVICE (8085) ──────────────────────────────────────────
+        - id: budget-service-base
+          uri: lb://budget-service
+          predicates:
+            - Path=/api/budgets
+          filters:
+            - RewritePath=/api/budgets, /budgets
+
+        - id: budget-service
+          uri: lb://budget-service
+          predicates:
+            - Path=/api/budgets/**
+          filters:
+            - RewritePath=/api/budgets/(?<segment>.*), /budgets/${segment}
+
+        # ── ANALYTICS SERVICE (8086) ───────────────────────────────────────
+        # Analytics has no base-POST so only one route needed
+        - id: analytics-service
+          uri: lb://analytics-service
+          predicates:
+            - Path=/api/analytics/**
+          filters:
+            - RewritePath=/api/analytics/(?<segment>.*), /analytics/${segment}
+
+        # ── RECURRING SERVICE (8087) ───────────────────────────────────────
+        - id: recurring-service-base
+          uri: lb://recurring-service
+          predicates:
+            - Path=/api/recurring
+          filters:
+            - RewritePath=/api/recurring, /recurring
+
+        - id: recurring-service
+          uri: lb://recurring-service
+          predicates:
+            - Path=/api/recurring/**
+          filters:
+            - RewritePath=/api/recurring/(?<segment>.*), /recurring/${segment}
+
+        # ── NOTIFICATION SERVICE (8088) ────────────────────────────────────
+        - id: notification-service-base
+          uri: lb://notification-service
+          predicates:
+            - Path=/api/notifications
+          filters:
+            - RewritePath=/api/notifications, /notifications
+
+        - id: notification-service
+          uri: lb://notification-service
+          predicates:
+            - Path=/api/notifications/**
+          filters:
+            - RewritePath=/api/notifications/(?<segment>.*), /notifications/${segment}
+
+# ── Eureka Client ────────────────────────────────────────────────────────
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+  instance:
+    prefer-ip-address: true
+
+# ── Actuator ──────────────────────────────────────────────────────────────
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, gateway
+  endpoint:
+    health:
+      show-details: always
+    gateway:
+      enabled: true
+
+# ── Logging ───────────────────────────────────────────────────────────────
+logging:
+  level:
+    root: INFO
+    org.springframework.cloud.gateway: DEBUG
