@@ -24,6 +24,10 @@
         <spring-cloud.version>2023.0.1</spring-cloud.version>
     </properties>
 
+    <properties>
+  <sonar.organization>raiakarsh</sonar.organization>
+</properties>
+
     <dependencyManagement>
         <dependencies>
             <dependency>

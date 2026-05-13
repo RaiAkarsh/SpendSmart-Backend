@@ -11,6 +11,10 @@
     <version>3.2.5</version>
   </parent>
 
+  <properties>
+  <sonar.organization>raiakarsh</sonar.organization>
+</properties>
+
   <dependencies>
     <!-- Gateway -->
     <dependency>
