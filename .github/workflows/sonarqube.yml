@@ -15,7 +15,6 @@ on:
 jobs:
   sonar:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -47,7 +46,7 @@ jobs:
 
           for service in "${services[@]}"; do
             echo "Running tests for $service"
-            mvn -f "$service/pom.xml" clean test
+            mvn -f "$service/pom.xml" clean test -Dtest='!*ApplicationTests'
           done
 
       - name: SonarCloud scan

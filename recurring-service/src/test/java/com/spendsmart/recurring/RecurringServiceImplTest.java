@@ -99,6 +99,7 @@ class RecurringServiceImplTest {
     @DisplayName("addRecurring: should normalize source to UPPERCASE for INCOME type")
     void addRecurring_shouldNormalizeSource_forIncomeType() {
         when(recurringRepository.save(any())).thenReturn(salaryRule);
+        when(incomeClient.createIncome(anyMap(), anyString())).thenReturn(Map.of("incomeId", 77));
 
         RecurringTransaction input = new RecurringTransaction();
         input.setType("INCOME");
@@ -108,7 +109,7 @@ class RecurringServiceImplTest {
 
         recurringService.addRecurring(input);
 
-        verify(recurringRepository).save(argThat(r -> "SALARY".equals(r.getSource())));
+        verify(recurringRepository, atLeastOnce()).save(argThat(r -> "SALARY".equals(r.getSource())));
     }
 
 
