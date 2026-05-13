@@ -46,7 +46,7 @@ jobs:
 
           for service in "${services[@]}"; do
             echo "Running tests for $service"
-            mvn -f "$service/pom.xml" clean test -Dtest='!*ApplicationTests'
+            mvn -f "$service/pom.xml" clean test -Dtest='!*ApplicationTests' -Dsurefire.failIfNoSpecifiedTests=false
           done
 
       - name: SonarCloud scan
