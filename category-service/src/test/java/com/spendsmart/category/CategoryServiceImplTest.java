@@ -1,5 +1,6 @@
 package com.spendsmart.category;
 
+import com.spendsmart.category.client.BudgetClient;
 import com.spendsmart.category.entity.Category;
 import com.spendsmart.category.repository.CategoryRepository;
 import com.spendsmart.category.serviceimpl.CategoryServiceImpl;
@@ -10,10 +11,12 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -27,6 +30,9 @@ class CategoryServiceImplTest {
     @Mock
     private CategoryRepository categoryRepository;
 
+    @Mock
+    private BudgetClient budgetClient;
+
     @InjectMocks
     private CategoryServiceImpl categoryService;
 
@@ -35,6 +41,10 @@ class CategoryServiceImplTest {
 
     @BeforeEach
     void setUp() {
+        ReflectionTestUtils.setField(categoryService, "secret", "SpendSmartSecretKey2026_Standard32Bytes!");
+        lenient().when(budgetClient.getActiveBudgetByCategory(anyInt(), anyInt(), anyString()))
+                .thenReturn(Map.of("budgetId", 101));
+
         foodCategory = new Category();
         foodCategory.setCategoryId(1);
         foodCategory.setUserId(1);

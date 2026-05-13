@@ -3,7 +3,9 @@ package com.spendsmart.budget;
 import com.spendsmart.budget.entity.Budget;
 import com.spendsmart.budget.entity.BudgetProgress;
 import com.spendsmart.budget.repository.BudgetRepository;
+import com.spendsmart.budget.serviceimpl.BudgetAlertPublisher;
 import com.spendsmart.budget.serviceimpl.BudgetServiceImpl;
+import com.spendsmart.budget.client.ExpenseClient;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -11,11 +13,13 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDate;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -29,6 +33,12 @@ class BudgetServiceImplTest {
     @Mock
     private BudgetRepository budgetRepository;
 
+    @Mock
+    private BudgetAlertPublisher budgetAlertPublisher;
+
+    @Mock
+    private ExpenseClient expenseClient;
+
     @InjectMocks
     private BudgetServiceImpl budgetService;
 
@@ -36,6 +46,8 @@ class BudgetServiceImplTest {
 
     @BeforeEach
     void setUp() {
+        ReflectionTestUtils.setField(budgetService, "secret", "SpendSmartSecretKey2026_Standard32Bytes!");
+
         foodBudget = new Budget();
         foodBudget.setBudgetId(1);
         foodBudget.setUserId(1);
@@ -49,6 +61,9 @@ class BudgetServiceImplTest {
         foodBudget.setEndDate(LocalDate.of(2026, 4, 30));
         foodBudget.setAlertThreshold(80);
         foodBudget.setActive(true);
+
+        lenient().when(expenseClient.getTotalByCategory(anyInt(), anyInt(), anyString()))
+                .thenReturn(Map.of("totalExpenses", 0.0));
     }
 
 
