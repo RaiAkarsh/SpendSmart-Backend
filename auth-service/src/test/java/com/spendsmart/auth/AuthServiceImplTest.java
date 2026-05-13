@@ -12,6 +12,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.Optional;
 
@@ -39,6 +40,7 @@ class AuthServiceImplTest {
 
     @BeforeEach
     void setUp() {
+        ReflectionTestUtils.setField(authService, "googleClientId", "test-google-client-id");
         // Create a standard test user used across multiple tests
         testUser = new User();
         testUser.setUserId(1);
@@ -162,6 +164,21 @@ class AuthServiceImplTest {
         assertTrue(ex.getMessage().contains("not found"));
     }
 
+    @Test
+    @DisplayName("getUserByEmail: should return user when found")
+    void getUserByEmail_shouldReturn_whenFound() {
+        when(userRepository.findByEmail("rahul@test.com")).thenReturn(Optional.of(testUser));
+        User result = authService.getUserByEmail("rahul@test.com");
+        assertEquals("rahul@test.com", result.getEmail());
+    }
+
+    @Test
+    @DisplayName("getUserByEmail: should throw when not found")
+    void getUserByEmail_shouldThrow_whenNotFound() {
+        when(userRepository.findByEmail("missing@test.com")).thenReturn(Optional.empty());
+        assertThrows(RuntimeException.class, () -> authService.getUserByEmail("missing@test.com"));
+    }
+
 
     @Test
     @DisplayName("updateProfile: should update name and avatar only")
@@ -227,5 +244,23 @@ class AuthServiceImplTest {
 
         assertDoesNotThrow(() -> authService.updateCurrency(1, "USD"));
         verify(userRepository).save(argThat(u -> "USD".equals(u.getCurrency())));
+    }
+
+    @Test
+    @DisplayName("updateMonthlyBudget: should update monthly budget")
+    void updateMonthlyBudget_shouldUpdateField() {
+        when(userRepository.findById(1)).thenReturn(Optional.of(testUser));
+        when(userRepository.save(any())).thenReturn(testUser);
+
+        authService.updateMonthlyBudget(1, 25000.0);
+
+        verify(userRepository).save(argThat(u -> u.getMonthlyBudget() == 25000.0));
+    }
+
+    @Test
+    @DisplayName("loginWithGoogle: should throw when token is blank")
+    void loginWithGoogle_shouldThrow_whenTokenBlank() {
+        RuntimeException ex = assertThrows(RuntimeException.class, () -> authService.loginWithGoogle(" "));
+        assertTrue(ex.getMessage().contains("idToken is required"));
     }
 }

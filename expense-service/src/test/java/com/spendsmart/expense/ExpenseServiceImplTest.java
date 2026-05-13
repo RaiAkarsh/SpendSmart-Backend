@@ -17,6 +17,7 @@ import java.time.LocalDate;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -95,6 +96,40 @@ class ExpenseServiceImplTest {
         assertEquals(1, result.size());
     }
 
+    @Test
+    @DisplayName("getExpensesByCategory: should return category expenses")
+    void getExpensesByCategory_shouldReturnMatches() {
+        when(expenseRepository.findByUserIdAndCategoryId(1, 1))
+                .thenReturn(Arrays.asList(testExpense));
+
+        List<Expense> result = expenseService.getExpensesByCategory(1, 1);
+
+        assertEquals(1, result.size());
+    }
+
+    @Test
+    @DisplayName("getExpensesByMonth: should return month expenses")
+    void getExpensesByMonth_shouldReturnMatches() {
+        when(expenseRepository.findByUserIdAndMonth(1, 4, 2026))
+                .thenReturn(Arrays.asList(testExpense));
+
+        List<Expense> result = expenseService.getExpensesByMonth(1, 4, 2026);
+
+        assertEquals(1, result.size());
+    }
+
+    @Test
+    @DisplayName("getExpensesByPaymentMethod: should normalize payment method")
+    void getExpensesByPaymentMethod_shouldUppercaseMethod() {
+        when(expenseRepository.findByUserIdAndPaymentMethod(1, "UPI"))
+                .thenReturn(Arrays.asList(testExpense));
+
+        List<Expense> result = expenseService.getExpensesByPaymentMethod(1, "upi");
+
+        assertEquals(1, result.size());
+        verify(expenseRepository).findByUserIdAndPaymentMethod(1, "UPI");
+    }
+
 
     @Test
     @DisplayName("getExpensesByDateRange: should throw when startDate is after endDate")
@@ -143,12 +178,42 @@ class ExpenseServiceImplTest {
         assertEquals(0.0, expenseService.getTotalByMonth(1, 4, 2026));
     }
 
+    @Test
+    @DisplayName("getTotalByCategory: should return 0 when null")
+    void getTotalByCategory_shouldReturnZero_whenNull() {
+        when(expenseRepository.sumAmountByUserIdAndCategoryId(1, 1)).thenReturn(null);
+        assertEquals(0.0, expenseService.getTotalByCategory(1, 1));
+    }
+
+    @Test
+    @DisplayName("getTotalByCategory: should return category total")
+    void getTotalByCategory_shouldReturnTotal() {
+        when(expenseRepository.sumAmountByUserIdAndCategoryId(1, 1)).thenReturn(250.0);
+        assertEquals(250.0, expenseService.getTotalByCategory(1, 1));
+    }
+
+    @Test
+    @DisplayName("getRecurringExpenses: should return recurring expenses")
+    void getRecurringExpenses_shouldReturnMatches() {
+        testExpense.setRecurring(true);
+        when(expenseRepository.findByUserIdAndIsRecurring(1, true))
+                .thenReturn(Arrays.asList(testExpense));
+
+        List<Expense> result = expenseService.getRecurringExpenses(1);
+
+        assertEquals(1, result.size());
+        assertTrue(result.get(0).isRecurring());
+    }
+
 
     @Test
     @DisplayName("updateExpense: should update fields and refresh updatedAt")
     void updateExpense_shouldUpdateAllFields() {
         when(expenseRepository.findByExpenseId(1)).thenReturn(Optional.of(testExpense));
         when(expenseRepository.save(any())).thenReturn(testExpense);
+        when(budgetClient.getActiveBudgetByCategory(anyInt(), anyInt(), anyString()))
+                .thenReturn(Map.of("budgetId", 10));
+        when(expenseRepository.sumAmountByUserIdAndCategoryId(anyInt(), anyInt())).thenReturn(300.0);
 
         Expense updates = new Expense();
         updates.setCategoryId(2);
@@ -162,6 +227,28 @@ class ExpenseServiceImplTest {
 
         verify(expenseRepository, times(1)).save(argThat(e ->
                 e.getTitle().equals("Updated lunch") && e.getAmount() == 300.0));
+    }
+
+    @Test
+    @DisplayName("deleteExpense: should delete non-default expense")
+    void deleteExpense_shouldDelete_whenNonDefault() {
+        when(expenseRepository.findByExpenseId(1)).thenReturn(Optional.of(testExpense));
+
+        expenseService.deleteExpense(1);
+
+        verify(expenseRepository).deleteByExpenseId(1);
+    }
+
+    @Test
+    @DisplayName("deleteExpense: should throw for default expense")
+    void deleteExpense_shouldThrow_whenDefaultExpense() {
+        testExpense.setDefault(true);
+        when(expenseRepository.findByExpenseId(1)).thenReturn(Optional.of(testExpense));
+
+        RuntimeException ex = assertThrows(RuntimeException.class, () -> expenseService.deleteExpense(1));
+
+        assertTrue(ex.getMessage().contains("Default expenses cannot be deleted"));
+        verify(expenseRepository, never()).deleteByExpenseId(anyInt());
     }
 
 

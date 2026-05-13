@@ -125,7 +125,31 @@ class IncomeServiceImplTest {
         verify(incomeRepository).findByUserIdAndSource(1, "FREELANCE");
     }
 
+    @Test
+    @DisplayName("getIncomesByUser: should return all user incomes ordered by date desc")
+    void getIncomesByUser_shouldReturnOrderedList() {
+        when(incomeRepository.findByUserIdOrderByDateDesc(1))
+                .thenReturn(Arrays.asList(freelanceIncome, salaryIncome));
 
+        List<Income> result = incomeService.getIncomesByUser(1);
+
+        assertEquals(2, result.size());
+        verify(incomeRepository).findByUserIdOrderByDateDesc(1);
+    }
+
+    @Test
+    @DisplayName("getIncomesByCategory: should return incomes for category")
+    void getIncomesByCategory_shouldReturnCategoryMatches() {
+        when(incomeRepository.findByUserIdAndCategoryId(1, 9))
+                .thenReturn(Arrays.asList(salaryIncome));
+
+        List<Income> result = incomeService.getIncomesByCategory(1, 9);
+
+        assertEquals(1, result.size());
+        assertEquals(9, result.get(0).getCategoryId());
+    }
+
+    
     @Test
     @DisplayName("getIncomesByDateRange: should throw when startDate after endDate")
     void getIncomesByDateRange_shouldThrow_whenStartAfterEnd() {
@@ -134,6 +158,55 @@ class IncomeServiceImplTest {
                         LocalDate.of(2026, 4, 30),
                         LocalDate.of(2026, 4, 1)));
         assertTrue(ex.getMessage().contains("startDate cannot be after endDate"));
+    }
+
+    @Test
+    @DisplayName("getIncomesByDateRange: should return incomes for valid range")
+    void getIncomesByDateRange_shouldReturn_whenValidRange() {
+        LocalDate start = LocalDate.of(2026, 4, 1);
+        LocalDate end = LocalDate.of(2026, 4, 30);
+        when(incomeRepository.findByUserIdAndDateBetween(1, start, end))
+                .thenReturn(Arrays.asList(salaryIncome, freelanceIncome));
+
+        List<Income> result = incomeService.getIncomesByDateRange(1, start, end);
+
+        assertEquals(2, result.size());
+    }
+
+    @Test
+    @DisplayName("getIncomesByMonth: should return repository data")
+    void getIncomesByMonth_shouldReturnMonthMatches() {
+        when(incomeRepository.findByUserIdAndMonth(1, 4, 2026))
+                .thenReturn(Arrays.asList(salaryIncome, freelanceIncome));
+
+        List<Income> result = incomeService.getIncomesByMonth(1, 4, 2026);
+
+        assertEquals(2, result.size());
+        verify(incomeRepository).findByUserIdAndMonth(1, 4, 2026);
+    }
+
+    @Test
+    @DisplayName("searchIncomes: should return all when keyword empty")
+    void searchIncomes_shouldReturnAll_whenKeywordEmpty() {
+        when(incomeRepository.findByUserIdOrderByDateDesc(1))
+                .thenReturn(Arrays.asList(salaryIncome));
+
+        List<Income> result = incomeService.searchIncomes(1, " ");
+
+        assertEquals(1, result.size());
+        verify(incomeRepository, never()).searchByKeyword(anyInt(), anyString());
+    }
+
+    @Test
+    @DisplayName("searchIncomes: should search when keyword provided")
+    void searchIncomes_shouldSearch_whenKeywordProvided() {
+        when(incomeRepository.searchByKeyword(1, "Salary"))
+                .thenReturn(Arrays.asList(salaryIncome));
+
+        List<Income> result = incomeService.searchIncomes(1, "Salary");
+
+        assertEquals(1, result.size());
+        verify(incomeRepository).searchByKeyword(1, "Salary");
     }
 
 
@@ -157,6 +230,13 @@ class IncomeServiceImplTest {
     void getTotalByMonth_shouldReturnZero_whenNull() {
         when(incomeRepository.sumAmountByUserIdAndMonth(1, 4, 2026)).thenReturn(null);
         assertEquals(0.0, incomeService.getTotalByMonth(1, 4, 2026));
+    }
+
+    @Test
+    @DisplayName("getTotalByMonth: should return total when present")
+    void getTotalByMonth_shouldReturnTotal() {
+        when(incomeRepository.sumAmountByUserIdAndMonth(1, 4, 2026)).thenReturn(100000.0);
+        assertEquals(100000.0, incomeService.getTotalByMonth(1, 4, 2026));
     }
 
 
@@ -189,6 +269,27 @@ class IncomeServiceImplTest {
 
         verify(incomeRepository).save(argThat(i ->
                 "FREELANCE".equals(i.getSource()) && i.getAmount() == 30000.0));
+    }
+
+    @Test
+    @DisplayName("updateIncome: should clear recurrence period when null")
+    void updateIncome_shouldClearRecurrencePeriod_whenNullProvided() {
+        when(incomeRepository.findByIncomeId(1)).thenReturn(Optional.of(salaryIncome));
+        when(incomeRepository.save(any())).thenReturn(salaryIncome);
+
+        Income updates = new Income();
+        updates.setCategoryId(9);
+        updates.setTitle("April Salary Revised");
+        updates.setAmount(80000.0);
+        updates.setCurrency("INR");
+        updates.setSource("salary");
+        updates.setDate(LocalDate.of(2026, 4, 1));
+        updates.setRecurring(false);
+        updates.setRecurrencePeriod(null);
+
+        incomeService.updateIncome(1, updates);
+
+        verify(incomeRepository).save(argThat(i -> i.getRecurrencePeriod() == null && !i.isRecurring()));
     }
 
 
