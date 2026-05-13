@@ -175,6 +175,65 @@ class CategoryServiceImplTest {
         assertTrue(result.stream().allMatch(c -> "EXPENSE".equals(c.getType())));
     }
 
+    @Test
+    @DisplayName("getCategoryById: should return category when found")
+    void getCategoryById_shouldReturn_whenFound() {
+        when(categoryRepository.findByCategoryId(1)).thenReturn(Optional.of(foodCategory));
+
+        Category result = categoryService.getCategoryById(1);
+
+        assertEquals("Food", result.getName());
+    }
+
+    @Test
+    @DisplayName("getCategoryById: should throw when not found")
+    void getCategoryById_shouldThrow_whenNotFound() {
+        when(categoryRepository.findByCategoryId(404)).thenReturn(Optional.empty());
+        assertThrows(RuntimeException.class, () -> categoryService.getCategoryById(404));
+    }
+
+    @Test
+    @DisplayName("updateCategory: should allow default category budget and style updates")
+    void updateCategory_shouldAllowDefaultCategoryNonNameFields() {
+        when(categoryRepository.findByCategoryId(1)).thenReturn(Optional.of(foodCategory));
+        when(categoryRepository.save(any())).thenReturn(foodCategory);
+
+        Category updates = new Category();
+        updates.setName("Food");
+        updates.setType("expense");
+        updates.setColorCode("#123456");
+        updates.setIcon("restaurant");
+        updates.setBudgetLimit(2500.0);
+
+        categoryService.updateCategory(1, updates);
+
+        verify(categoryRepository).save(argThat(c ->
+                "EXPENSE".equals(c.getType())
+                        && "#123456".equals(c.getColorCode())
+                        && "restaurant".equals(c.getIcon())
+                        && c.getBudgetLimit() == 2500.0));
+    }
+
+    @Test
+    @DisplayName("updateCategory: should throw when renaming default category")
+    void updateCategory_shouldThrow_whenRenamingDefaultCategory() {
+        when(categoryRepository.findByCategoryId(1)).thenReturn(Optional.of(foodCategory));
+
+        Category updates = new Category();
+        updates.setName("New Food");
+
+        RuntimeException ex = assertThrows(RuntimeException.class, () -> categoryService.updateCategory(1, updates));
+
+        assertTrue(ex.getMessage().contains("Cannot rename default category"));
+    }
+
+    @Test
+    @DisplayName("getCategoryCount: should return repository count")
+    void getCategoryCount_shouldReturnCount() {
+        when(categoryRepository.countByUserId(1)).thenReturn(12);
+        assertEquals(12, categoryService.getCategoryCount(1));
+    }
+
 
     @Test
     @DisplayName("setCategoryBudget: should update budgetLimit")

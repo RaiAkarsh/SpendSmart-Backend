@@ -158,6 +158,49 @@ class AnalyticsServiceImplTest {
         assertEquals(100.0, totalPct, 0.1);
     }
 
+    @Test
+    @DisplayName("getYearlySummary: should aggregate all 12 months")
+    void getYearlySummary_shouldAggregateYear() {
+        when(expenseClient.getTotalByMonth(anyInt(), anyInt(), eq(2026), anyString()))
+                .thenReturn(Map.of("totalExpenses", 1000.0));
+        when(incomeClient.getTotalByMonth(anyInt(), anyInt(), eq(2026), anyString()))
+                .thenReturn(Map.of("totalIncome", 5000.0));
+
+        Map<String, Object> result = analyticsService.getYearlySummary(1, 2026);
+
+        assertEquals(60000.0, ((Number) result.get("totalIncome")).doubleValue());
+        assertEquals(12000.0, ((Number) result.get("totalExpenses")).doubleValue());
+        assertEquals(48000.0, ((Number) result.get("netSavings")).doubleValue());
+    }
+
+    @Test
+    @DisplayName("getIncomeVsExpense: should return surplus when income exceeds expenses")
+    void getIncomeVsExpense_shouldReturnSurplus() {
+        when(expenseClient.getTotalByMonth(eq(1), eq(4), eq(2026), anyString()))
+                .thenReturn(Map.of("totalExpenses", 2000.0));
+        when(incomeClient.getTotalByMonth(eq(1), eq(4), eq(2026), anyString()))
+                .thenReturn(Map.of("totalIncome", 10000.0));
+
+        Map<String, Object> result = analyticsService.getIncomeVsExpense(1, 4, 2026);
+
+        assertEquals("SURPLUS", result.get("status"));
+        assertEquals(8000.0, ((Number) result.get("difference")).doubleValue());
+    }
+
+    @Test
+    @DisplayName("getAllTimeTotals: should combine income and expense totals")
+    void getAllTimeTotals_shouldCombineTotals() {
+        when(expenseClient.getTotalByUser(eq(1), anyString()))
+                .thenReturn(Map.of("totalExpenses", 15000.0));
+        when(incomeClient.getTotalByUser(eq(1), anyString()))
+                .thenReturn(Map.of("totalIncome", 50000.0));
+
+        Map<String, Object> result = analyticsService.getAllTimeTotals(1);
+
+        assertEquals(35000.0, ((Number) result.get("netPosition")).doubleValue());
+        assertEquals("POSITIVE", result.get("status"));
+    }
+
 
     @Test
     @DisplayName("getSpendingTrends: should return N monthly data points")
