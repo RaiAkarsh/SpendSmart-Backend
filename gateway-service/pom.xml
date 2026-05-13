@@ -12,8 +12,9 @@
   </parent>
 
   <properties>
-  <sonar.organization>raiakarsh</sonar.organization>
-</properties>
+    <java.version>21</java.version>
+    <sonar.organization>raiakarsh</sonar.organization>
+  </properties>
 
   <dependencies>
     <!-- Gateway -->
