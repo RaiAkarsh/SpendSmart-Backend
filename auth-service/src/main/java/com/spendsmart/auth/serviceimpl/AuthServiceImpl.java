@@ -114,7 +114,7 @@ public class AuthServiceImpl implements AuthService {
         return jwtUtil.generateToken(user.getEmail(), user.getUserId());
     }
 
-    private GoogleIdToken.Payload verifyGoogleToken(String idTokenString) {
+    protected GoogleIdToken.Payload verifyGoogleToken(String idTokenString) {
         try {
             GoogleIdTokenVerifier verifier = new GoogleIdTokenVerifier.Builder(
                     new NetHttpTransport(), GsonFactory.getDefaultInstance())
