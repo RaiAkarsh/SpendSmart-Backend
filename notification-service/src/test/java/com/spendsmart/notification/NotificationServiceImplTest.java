@@ -15,7 +15,9 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -220,5 +222,154 @@ class NotificationServiceImplTest {
     void deleteReadNotifications_shouldDeleteAllRead() {
         notificationService.deleteReadNotifications(1);
         verify(notificationRepository).deleteAll(anyList());
+    }
+
+
+    @Test
+    @DisplayName("createNotification: should normalize type and priority to UPPERCASE")
+    void createNotification_shouldUppercaseTypeAndPriority() {
+        when(notificationRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+
+        Notification input = new Notification();
+        input.setUserId(1);
+        input.setTitle("t");
+        input.setMessage("m");
+        input.setType("system");
+        input.setPriority("low");
+
+        notificationService.createNotification(input);
+
+        verify(notificationRepository).save(argThat(n ->
+                "SYSTEM".equals(n.getType()) && "LOW".equals(n.getPriority())
+                        && n.getCreatedAt() != null));
+    }
+
+    @Test
+    @DisplayName("getById: should return notification when found")
+    void getById_shouldReturn_whenFound() {
+        when(notificationRepository.findByNotificationId(1)).thenReturn(Optional.of(unreadNotification));
+        Notification n = notificationService.getById(1);
+        assertEquals(1, n.getNotificationId());
+    }
+
+    @Test
+    @DisplayName("getById: should throw when not found")
+    void getById_shouldThrow_whenNotFound() {
+        when(notificationRepository.findByNotificationId(999)).thenReturn(Optional.empty());
+        assertThrows(RuntimeException.class, () -> notificationService.getById(999));
+    }
+
+    @Test
+    @DisplayName("getByUserAndType: should uppercase type and delegate to repository")
+    void getByUserAndType_shouldUppercaseAndDelegate() {
+        when(notificationRepository.findByUserIdAndTypeOrderByCreatedAtDesc(1, "BUDGET_ALERT"))
+                .thenReturn(Arrays.asList(unreadNotification));
+        List<Notification> result = notificationService.getByUserAndType(1, "budget_alert");
+        assertEquals(1, result.size());
+    }
+
+    @Test
+    @DisplayName("getByUserAndPriority: should uppercase priority and delegate to repository")
+    void getByUserAndPriority_shouldUppercaseAndDelegate() {
+        when(notificationRepository.findByUserIdAndPriorityOrderByCreatedAtDesc(1, "HIGH"))
+                .thenReturn(Arrays.asList(unreadNotification));
+        List<Notification> result = notificationService.getByUserAndPriority(1, "high");
+        assertEquals(1, result.size());
+    }
+
+
+    @Test
+    @DisplayName("checkBudgetAlerts: should do nothing when budgets list is null")
+    void checkBudgetAlerts_shouldNoop_whenBudgetsNull() {
+        when(budgetClient.getAllBudgets(anyString())).thenReturn(null);
+        notificationService.checkBudgetAlerts();
+        verify(notificationRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("checkBudgetAlerts: should do nothing when budgets list is empty")
+    void checkBudgetAlerts_shouldNoop_whenBudgetsEmpty() {
+        when(budgetClient.getAllBudgets(anyString())).thenReturn(Collections.emptyList());
+        notificationService.checkBudgetAlerts();
+        verify(notificationRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("checkBudgetAlerts: should skip inactive or zero-limit budgets")
+    void checkBudgetAlerts_shouldSkipInactiveOrZeroLimit() {
+        Map<String, Object> inactive = new HashMap<>();
+        inactive.put("budgetId", 1); inactive.put("userId", 1); inactive.put("name", "Food");
+        inactive.put("limitAmount", 1000.0); inactive.put("spentAmount", 2000.0);
+        inactive.put("alertThreshold", 80); inactive.put("active", false);
+
+        Map<String, Object> zeroLimit = new HashMap<>();
+        zeroLimit.put("budgetId", 2); zeroLimit.put("userId", 1); zeroLimit.put("name", "Travel");
+        zeroLimit.put("limitAmount", 0.0); zeroLimit.put("spentAmount", 200.0);
+        zeroLimit.put("alertThreshold", 80); zeroLimit.put("active", true);
+
+        when(budgetClient.getAllBudgets(anyString())).thenReturn(Arrays.asList(inactive, zeroLimit));
+
+        notificationService.checkBudgetAlerts();
+
+        verify(notificationRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("checkBudgetAlerts: should create BUDGET_WARNING when usage above threshold and not exceeded")
+    void checkBudgetAlerts_shouldCreateWarning() {
+        Map<String, Object> b = new HashMap<>();
+        b.put("budgetId", 1); b.put("userId", 1); b.put("name", "Food");
+        b.put("limitAmount", 1000.0); b.put("spentAmount", 850.0);
+        b.put("alertThreshold", 80); b.put("active", true);
+        when(budgetClient.getAllBudgets(anyString())).thenReturn(Collections.singletonList(b));
+        when(notificationRepository.existsActiveNotification(1, 1, "BUDGET", "BUDGET_WARNING"))
+                .thenReturn(false);
+        when(notificationRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+
+        notificationService.checkBudgetAlerts();
+
+        verify(notificationRepository).save(argThat(n ->
+                "BUDGET_WARNING".equals(n.getType()) && n.getUserId() == 1));
+    }
+
+    @Test
+    @DisplayName("checkBudgetAlerts: should skip warning when an active warning already exists")
+    void checkBudgetAlerts_shouldSkipWarning_whenAlreadyActive() {
+        Map<String, Object> b = new HashMap<>();
+        b.put("budgetId", 1); b.put("userId", 1); b.put("name", "Food");
+        b.put("limitAmount", 1000.0); b.put("spentAmount", 850.0);
+        b.put("alertThreshold", 80); b.put("active", true);
+        when(budgetClient.getAllBudgets(anyString())).thenReturn(Collections.singletonList(b));
+        when(notificationRepository.existsActiveNotification(1, 1, "BUDGET", "BUDGET_WARNING"))
+                .thenReturn(true);
+
+        notificationService.checkBudgetAlerts();
+
+        verify(notificationRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("checkBudgetAlerts: should create BUDGET_EXCEEDED when spent > limit")
+    void checkBudgetAlerts_shouldCreateExceeded() {
+        Map<String, Object> b = new HashMap<>();
+        b.put("budgetId", 1); b.put("userId", 1); b.put("name", "Food");
+        b.put("limitAmount", 1000.0); b.put("spentAmount", 1500.0);
+        b.put("alertThreshold", 80); b.put("active", true);
+        when(budgetClient.getAllBudgets(anyString())).thenReturn(Collections.singletonList(b));
+        when(notificationRepository.existsActiveNotification(1, 1, "BUDGET", "BUDGET_EXCEEDED"))
+                .thenReturn(false);
+        when(notificationRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+
+        notificationService.checkBudgetAlerts();
+
+        verify(notificationRepository).save(argThat(n -> "BUDGET_EXCEEDED".equals(n.getType())));
+    }
+
+    @Test
+    @DisplayName("checkBudgetAlerts: should swallow exceptions from budgetClient")
+    void checkBudgetAlerts_shouldSwallowExceptions() {
+        when(budgetClient.getAllBudgets(anyString())).thenThrow(new RuntimeException("boom"));
+        assertDoesNotThrow(() -> notificationService.checkBudgetAlerts());
+        verify(notificationRepository, never()).save(any());
     }
 }

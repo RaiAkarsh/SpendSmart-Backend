@@ -226,6 +226,307 @@ class RecurringServiceImplTest {
     }
 
     @Test
+    @DisplayName("getById: should return rule when found")
+    void getById_shouldReturn_whenFound() {
+        when(recurringRepository.findByRecurringId(1)).thenReturn(Optional.of(netflixRule));
+        assertEquals(1, recurringService.getById(1).getRecurringId());
+    }
+
+    @Test
+    @DisplayName("getById: should throw when not found")
+    void getById_shouldThrow_whenNotFound() {
+        when(recurringRepository.findByRecurringId(99)).thenReturn(Optional.empty());
+        assertThrows(RuntimeException.class, () -> recurringService.getById(99));
+    }
+
+    @Test
+    @DisplayName("getByUser: should delegate to repository")
+    void getByUser_shouldDelegate() {
+        when(recurringRepository.findByUserId(1)).thenReturn(Arrays.asList(netflixRule));
+        assertEquals(1, recurringService.getByUser(1).size());
+    }
+
+    @Test
+    @DisplayName("getActiveByUser: should delegate to repository")
+    void getActiveByUser_shouldDelegate() {
+        when(recurringRepository.findByUserIdAndIsActive(1, true)).thenReturn(Arrays.asList(netflixRule));
+        assertEquals(1, recurringService.getActiveByUser(1).size());
+    }
+
+    @Test
+    @DisplayName("getByUserAndType: should uppercase type and delegate")
+    void getByUserAndType_shouldUppercaseAndDelegate() {
+        when(recurringRepository.findByUserIdAndType(1, "EXPENSE"))
+                .thenReturn(Arrays.asList(netflixRule));
+        assertEquals(1, recurringService.getByUserAndType(1, "expense").size());
+    }
+
+    @Test
+    @DisplayName("getUpcomingThisMonth: should query active rules due in current month")
+    void getUpcomingThisMonth_shouldReturnList() {
+        when(recurringRepository.findByUserIdAndIsActiveAndNextDueDateBetween(
+                eq(1), eq(true), any(LocalDate.class), any(LocalDate.class)))
+                .thenReturn(Arrays.asList(netflixRule));
+        assertEquals(1, recurringService.getUpcomingThisMonth(1).size());
+    }
+
+
+    @Test
+    @DisplayName("addRecurring: should generate immediate occurrence when due today (EXPENSE)")
+    void addRecurring_shouldGenerateImmediate_whenDueTodayExpense() {
+        when(recurringRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+        when(expenseClient.createExpense(anyMap(), anyString())).thenReturn(Map.of("expenseId", 11));
+
+        RecurringTransaction input = new RecurringTransaction();
+        input.setUserId(1);
+        input.setType("EXPENSE");
+        input.setFrequency("MONTHLY");
+        input.setStartDate(LocalDate.now());
+        input.setPaymentMethod("CASH");
+
+        RecurringTransaction saved = recurringService.addRecurring(input);
+
+        assertEquals(Integer.valueOf(11), saved.getLastGeneratedExpenseId());
+        assertEquals(LocalDate.now(), saved.getLastGeneratedDate());
+        verify(expenseClient).createExpense(anyMap(), anyString());
+    }
+
+    @Test
+    @DisplayName("addRecurring: should swallow exception during immediate generation")
+    void addRecurring_shouldSwallowException_duringImmediateGeneration() {
+        when(recurringRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+        when(expenseClient.createExpense(anyMap(), anyString()))
+                .thenThrow(new RuntimeException("boom"));
+
+        RecurringTransaction input = new RecurringTransaction();
+        input.setUserId(1);
+        input.setType("EXPENSE");
+        input.setFrequency("MONTHLY");
+        input.setStartDate(LocalDate.now());
+
+        assertDoesNotThrow(() -> recurringService.addRecurring(input));
+    }
+
+    @Test
+    @DisplayName("addRecurring: should NOT generate immediately when startDate is in future")
+    void addRecurring_shouldNotGenerateImmediately_whenFutureStart() {
+        when(recurringRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+
+        RecurringTransaction input = new RecurringTransaction();
+        input.setUserId(1);
+        input.setType("EXPENSE");
+        input.setFrequency("MONTHLY");
+        input.setStartDate(LocalDate.now().plusMonths(1));
+
+        recurringService.addRecurring(input);
+
+        verify(expenseClient, never()).createExpense(anyMap(), anyString());
+    }
+
+
+    @Test
+    @DisplayName("processDueTransactions: should create INCOME occurrence and advance next due date")
+    void processDueTransactions_shouldProcessIncome() {
+        LocalDate today = LocalDate.now();
+        salaryRule.setNextDueDate(today);
+        salaryRule.setEndDate(today.plusMonths(6));
+
+        when(recurringRepository.findByIsActiveAndNextDueDateLessThanEqual(true, today))
+                .thenReturn(Arrays.asList(salaryRule));
+        when(recurringRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+        when(incomeClient.createIncome(anyMap(), anyString())).thenReturn(Map.of("incomeId", 33));
+
+        recurringService.processDueTransactions();
+
+        verify(incomeClient).createIncome(anyMap(), anyString());
+        verify(recurringRepository).save(argThat(r ->
+                Integer.valueOf(33).equals(r.getLastGeneratedIncomeId())
+                        && r.getNextDueDate().equals(today.plusMonths(1))));
+    }
+
+    @Test
+    @DisplayName("processDueTransactions: should swallow exception in single rule processing")
+    void processDueTransactions_shouldSwallowException() {
+        LocalDate today = LocalDate.now();
+        netflixRule.setNextDueDate(today);
+
+        when(recurringRepository.findByIsActiveAndNextDueDateLessThanEqual(true, today))
+                .thenReturn(Arrays.asList(netflixRule));
+        when(expenseClient.createExpense(anyMap(), anyString()))
+                .thenThrow(new RuntimeException("rest failure"));
+
+        assertDoesNotThrow(() -> recurringService.processDueTransactions());
+    }
+
+    @Test
+    @DisplayName("processDueTransactions: WEEKLY frequency should advance by 1 week")
+    void processDueTransactions_weeklyFrequency() {
+        LocalDate today = LocalDate.now();
+        netflixRule.setFrequency("WEEKLY");
+        netflixRule.setNextDueDate(today);
+
+        when(recurringRepository.findByIsActiveAndNextDueDateLessThanEqual(true, today))
+                .thenReturn(Arrays.asList(netflixRule));
+        when(recurringRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+        doReturn(Map.of("expenseId", 61)).when(expenseClient).createExpense(anyMap(), anyString());
+
+        recurringService.processDueTransactions();
+
+        verify(recurringRepository).save(argThat(r -> r.getNextDueDate().equals(today.plusWeeks(1))));
+    }
+
+    @Test
+    @DisplayName("processDueTransactions: QUARTERLY frequency should advance by 3 months")
+    void processDueTransactions_quarterlyFrequency() {
+        LocalDate today = LocalDate.now();
+        netflixRule.setFrequency("QUARTERLY");
+        netflixRule.setNextDueDate(today);
+
+        when(recurringRepository.findByIsActiveAndNextDueDateLessThanEqual(true, today))
+                .thenReturn(Arrays.asList(netflixRule));
+        when(recurringRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+        doReturn(Map.of("expenseId", 71)).when(expenseClient).createExpense(anyMap(), anyString());
+
+        recurringService.processDueTransactions();
+
+        verify(recurringRepository).save(argThat(r -> r.getNextDueDate().equals(today.plusMonths(3))));
+    }
+
+    @Test
+    @DisplayName("processDueTransactions: YEARLY frequency should advance by 1 year")
+    void processDueTransactions_yearlyFrequency() {
+        LocalDate today = LocalDate.now();
+        netflixRule.setFrequency("YEARLY");
+        netflixRule.setNextDueDate(today);
+
+        when(recurringRepository.findByIsActiveAndNextDueDateLessThanEqual(true, today))
+                .thenReturn(Arrays.asList(netflixRule));
+        when(recurringRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+        doReturn(Map.of("expenseId", 81)).when(expenseClient).createExpense(anyMap(), anyString());
+
+        recurringService.processDueTransactions();
+
+        verify(recurringRepository).save(argThat(r -> r.getNextDueDate().equals(today.plusYears(1))));
+    }
+
+    @Test
+    @DisplayName("processDueTransactions: unknown frequency should fallback to monthly")
+    void processDueTransactions_unknownFrequencyFallback() {
+        LocalDate today = LocalDate.now();
+        netflixRule.setFrequency("WEIRD");
+        netflixRule.setNextDueDate(today);
+
+        when(recurringRepository.findByIsActiveAndNextDueDateLessThanEqual(true, today))
+                .thenReturn(Arrays.asList(netflixRule));
+        when(recurringRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+        doReturn(Map.of("expenseId", 91)).when(expenseClient).createExpense(anyMap(), anyString());
+
+        recurringService.processDueTransactions();
+
+        verify(recurringRepository).save(argThat(r -> r.getNextDueDate().equals(today.plusMonths(1))));
+    }
+
+    @Test
+    @DisplayName("processDueTransactions: should deactivate before processing when nextDueDate already past endDate")
+    void processDueTransactions_shouldDeactivateEarly_whenAlreadyPastEndDate() {
+        LocalDate today = LocalDate.now();
+        netflixRule.setNextDueDate(today);
+        netflixRule.setEndDate(today.minusDays(1));
+
+        when(recurringRepository.findByIsActiveAndNextDueDateLessThanEqual(true, today))
+                .thenReturn(Arrays.asList(netflixRule));
+        when(recurringRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+
+        recurringService.processDueTransactions();
+
+        verify(recurringRepository).save(argThat(r -> !r.isActive()));
+        verify(expenseClient, never()).createExpense(anyMap(), anyString());
+    }
+
+
+    @Test
+    @DisplayName("updateRecurring: same-type EXPENSE should update linked expense via REST")
+    void updateRecurring_sameTypeExpense_shouldUpdateLinkedExpense() {
+        netflixRule.setLastGeneratedExpenseId(101);
+        netflixRule.setLastGeneratedDate(LocalDate.now().minusDays(1));
+
+        RecurringTransaction updated = new RecurringTransaction();
+        updated.setUserId(1);
+        updated.setCategoryId(6);
+        updated.setTitle("Updated Netflix");
+        updated.setAmount(749.0);
+        updated.setCurrency("INR");
+        updated.setType("EXPENSE");
+        updated.setFrequency("MONTHLY");
+        updated.setStartDate(LocalDate.now());
+        updated.setNextDueDate(LocalDate.now().plusMonths(1));
+        updated.setActive(true);
+        updated.setPaymentMethod("CARD");
+
+        when(recurringRepository.findByRecurringId(1)).thenReturn(Optional.of(netflixRule));
+        when(recurringRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+
+        recurringService.updateRecurring(1, updated);
+
+        verify(expenseClient).updateExpense(eq(101), anyMap(), anyString());
+        verify(expenseClient, never()).createExpense(anyMap(), anyString());
+    }
+
+    @Test
+    @DisplayName("updateRecurring: same-type INCOME should update linked income via REST")
+    void updateRecurring_sameTypeIncome_shouldUpdateLinkedIncome() {
+        salaryRule.setLastGeneratedIncomeId(202);
+        salaryRule.setLastGeneratedDate(LocalDate.now().minusDays(2));
+
+        RecurringTransaction updated = new RecurringTransaction();
+        updated.setUserId(1);
+        updated.setCategoryId(9);
+        updated.setTitle("Updated Salary");
+        updated.setAmount(80000.0);
+        updated.setCurrency("INR");
+        updated.setType("INCOME");
+        updated.setFrequency("MONTHLY");
+        updated.setSource("SALARY");
+        updated.setStartDate(LocalDate.now());
+        updated.setNextDueDate(LocalDate.now().plusMonths(1));
+        updated.setActive(true);
+
+        when(recurringRepository.findByRecurringId(2)).thenReturn(Optional.of(salaryRule));
+        when(recurringRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+
+        recurringService.updateRecurring(2, updated);
+
+        verify(incomeClient).updateIncome(eq(202), anyMap(), anyString());
+        verify(incomeClient, never()).createIncome(anyMap(), anyString());
+    }
+
+    @Test
+    @DisplayName("updateRecurring: should set source to null when updated source is null")
+    void updateRecurring_shouldNullifySource_whenSourceMissing() {
+        netflixRule.setSource("PREVIOUS");
+        RecurringTransaction updated = new RecurringTransaction();
+        updated.setUserId(1);
+        updated.setCategoryId(6);
+        updated.setTitle("Netflix");
+        updated.setAmount(649.0);
+        updated.setCurrency("INR");
+        updated.setType("EXPENSE");
+        updated.setFrequency("MONTHLY");
+        updated.setStartDate(LocalDate.now());
+        updated.setNextDueDate(LocalDate.now().plusMonths(1));
+        updated.setActive(true);
+        // source intentionally null
+
+        when(recurringRepository.findByRecurringId(1)).thenReturn(Optional.of(netflixRule));
+        when(recurringRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+
+        recurringService.updateRecurring(1, updated);
+
+        verify(recurringRepository, atLeastOnce()).save(argThat(r -> r.getSource() == null));
+    }
+
+
+    @Test
     @DisplayName("updateRecurring: should move generated transaction from expense to income when type changes")
     void updateRecurring_shouldMoveGeneratedTransaction_whenTypeChanges() {
         netflixRule.setLastGeneratedExpenseId(88);

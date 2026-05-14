@@ -243,4 +243,194 @@ class BudgetServiceImplTest {
         List<BudgetProgress> result = budgetService.getAllBudgetProgress(1);
         assertTrue(result.isEmpty());
     }
+
+
+    @Test
+    @DisplayName("getBudgetById: should return budget when found")
+    void getBudgetById_shouldReturn_whenFound() {
+        when(budgetRepository.findByBudgetId(1)).thenReturn(Optional.of(foodBudget));
+        Budget b = budgetService.getBudgetById(1);
+        assertEquals(1, b.getBudgetId());
+    }
+
+    @Test
+    @DisplayName("getBudgetById: should throw when not found")
+    void getBudgetById_shouldThrow_whenNotFound() {
+        when(budgetRepository.findByBudgetId(999)).thenReturn(Optional.empty());
+        assertThrows(RuntimeException.class, () -> budgetService.getBudgetById(999));
+    }
+
+    @Test
+    @DisplayName("getAllBudgets: should delegate to repository.findAll")
+    void getAllBudgets_shouldReturnList() {
+        when(budgetRepository.findAll()).thenReturn(Arrays.asList(foodBudget));
+        assertEquals(1, budgetService.getAllBudgets().size());
+    }
+
+    @Test
+    @DisplayName("getBudgetsByUser: should delegate to repository.findByUserId")
+    void getBudgetsByUser_shouldReturnList() {
+        when(budgetRepository.findByUserId(1)).thenReturn(Arrays.asList(foodBudget));
+        assertEquals(1, budgetService.getBudgetsByUser(1).size());
+    }
+
+    @Test
+    @DisplayName("getActiveBudgets: should delegate to repository.findByUserIdAndIsActive")
+    void getActiveBudgets_shouldReturnList() {
+        when(budgetRepository.findByUserIdAndIsActive(1, true)).thenReturn(Arrays.asList(foodBudget));
+        assertEquals(1, budgetService.getActiveBudgets(1).size());
+    }
+
+    @Test
+    @DisplayName("getActiveBudgetByCategory: should return when found")
+    void getActiveBudgetByCategory_shouldReturn_whenFound() {
+        when(budgetRepository.findByUserIdAndCategoryIdAndIsActive(1, 1, true))
+                .thenReturn(Optional.of(foodBudget));
+        Budget b = budgetService.getActiveBudgetByCategory(1, 1);
+        assertEquals(1, b.getCategoryId());
+    }
+
+    @Test
+    @DisplayName("getActiveBudgetByCategory: should throw when not found")
+    void getActiveBudgetByCategory_shouldThrow_whenNotFound() {
+        when(budgetRepository.findByUserIdAndCategoryIdAndIsActive(1, 99, true))
+                .thenReturn(Optional.empty());
+        assertThrows(RuntimeException.class, () -> budgetService.getActiveBudgetByCategory(1, 99));
+    }
+
+
+    @Test
+    @DisplayName("updateBudget: should update editable fields and currency")
+    void updateBudget_shouldUpdateEditableFieldsAndCurrency() {
+        when(budgetRepository.findByBudgetId(1)).thenReturn(Optional.of(foodBudget));
+        when(budgetRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+
+        Budget updates = new Budget();
+        updates.setName("Updated Name");
+        updates.setLimitAmount(8000.0);
+        updates.setAlertThreshold(75);
+        updates.setEndDate(LocalDate.of(2026, 5, 31));
+        updates.setCurrency("USD");
+
+        Budget saved = budgetService.updateBudget(1, updates);
+
+        assertEquals("Updated Name", saved.getName());
+        assertEquals(8000.0, saved.getLimitAmount());
+        assertEquals(75, saved.getAlertThreshold());
+        assertEquals("USD", saved.getCurrency());
+        verify(budgetAlertPublisher).publishIfNeeded(saved);
+    }
+
+    @Test
+    @DisplayName("updateBudget: should keep existing currency when not provided")
+    void updateBudget_shouldKeepCurrency_whenNull() {
+        when(budgetRepository.findByBudgetId(1)).thenReturn(Optional.of(foodBudget));
+        when(budgetRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+
+        Budget updates = new Budget();
+        updates.setName("Renamed");
+        updates.setLimitAmount(5500.0);
+        updates.setAlertThreshold(80);
+        // currency intentionally null
+
+        Budget saved = budgetService.updateBudget(1, updates);
+        assertEquals("INR", saved.getCurrency());
+    }
+
+
+    @Test
+    @DisplayName("updateSpentAmount: should clamp negative values to 0")
+    void updateSpentAmount_shouldClampNegativeToZero() {
+        when(budgetRepository.findByBudgetId(1)).thenReturn(Optional.of(foodBudget));
+        when(budgetRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+
+        budgetService.updateSpentAmount(1, -50.0);
+
+        verify(budgetRepository).save(argThat(b -> b.getSpentAmount() == 0.0));
+    }
+
+    @Test
+    @DisplayName("updateSpentAmount: should set exact non-negative value")
+    void updateSpentAmount_shouldSetValue() {
+        when(budgetRepository.findByBudgetId(1)).thenReturn(Optional.of(foodBudget));
+        when(budgetRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+
+        budgetService.updateSpentAmount(1, 1234.5);
+
+        verify(budgetRepository).save(argThat(b -> b.getSpentAmount() == 1234.5));
+        verify(budgetAlertPublisher, atLeastOnce()).publishIfNeeded(any());
+    }
+
+
+    @Test
+    @DisplayName("createBudget: should prefill spentAmount from expense-service")
+    void createBudget_shouldPrefillSpent_fromExpenseService() {
+        // Override default 0.0 stub to simulate existing expenses for this category
+        when(expenseClient.getTotalByCategory(anyInt(), anyInt(), anyString()))
+                .thenReturn(Map.of("totalExpenses", 1200.0));
+        when(budgetRepository.save(any(Budget.class))).thenAnswer(i -> i.getArgument(0));
+
+        Budget input = new Budget();
+        input.setUserId(1);
+        input.setCategoryId(1);
+        input.setName("Food");
+        input.setLimitAmount(5000.0);
+        input.setPeriod("MONTHLY");
+
+        Budget saved = budgetService.createBudget(input);
+
+        assertEquals(1200.0, saved.getSpentAmount());
+    }
+
+    @Test
+    @DisplayName("createBudget: should treat null expense response as 0 spent")
+    void createBudget_shouldHandleNullExpenseResponse() {
+        when(expenseClient.getTotalByCategory(anyInt(), anyInt(), anyString())).thenReturn(null);
+        when(budgetRepository.save(any(Budget.class))).thenAnswer(i -> i.getArgument(0));
+
+        Budget input = new Budget();
+        input.setUserId(1);
+        input.setCategoryId(1);
+        input.setName("Food");
+        input.setLimitAmount(5000.0);
+        input.setPeriod("MONTHLY");
+
+        Budget saved = budgetService.createBudget(input);
+        assertEquals(0.0, saved.getSpentAmount());
+    }
+
+    @Test
+    @DisplayName("createBudget: should default to 0 spent when expense client throws")
+    void createBudget_shouldDefaultZero_whenExpenseClientFails() {
+        when(expenseClient.getTotalByCategory(anyInt(), anyInt(), anyString()))
+                .thenThrow(new RuntimeException("expense svc down"));
+        when(budgetRepository.save(any(Budget.class))).thenAnswer(i -> i.getArgument(0));
+
+        Budget input = new Budget();
+        input.setUserId(1);
+        input.setCategoryId(1);
+        input.setName("Food");
+        input.setLimitAmount(5000.0);
+        input.setPeriod("MONTHLY");
+
+        Budget saved = budgetService.createBudget(input);
+        assertEquals(0.0, saved.getSpentAmount());
+    }
+
+    @Test
+    @DisplayName("createBudget: should handle null period without normalization")
+    void createBudget_shouldHandleNullPeriod() {
+        when(budgetRepository.save(any(Budget.class))).thenAnswer(i -> i.getArgument(0));
+
+        Budget input = new Budget();
+        input.setUserId(1);
+        input.setCategoryId(1);
+        input.setName("Food");
+        input.setLimitAmount(5000.0);
+        input.setPeriod(null);
+
+        Budget saved = budgetService.createBudget(input);
+        assertNull(saved.getPeriod());
+        assertTrue(saved.isActive());
+    }
 }
