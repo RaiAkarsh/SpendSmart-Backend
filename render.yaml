@@ -1,0 +1,172 @@
+# ============================================================================
+#  Render Blueprint for SpendSmart (5-service deployment)
+#  ----------------------------------------------------------------------------
+#  Services:
+#    1. spendsmart-eureka       -  Service registry (Eureka Server)
+#    2. spendsmart-gateway      -  API Gateway (entry point for the frontend)
+#    3. spendsmart-auth         -  Authentication service
+#    4. spendsmart-category     -  Category service
+#    5. spendsmart-expense      -  Expense service
+#
+#  Required external resources (NOT created by Render):
+#    -  A free MySQL host (Aiven / Clever Cloud) with three schemas:
+#         spendsmart_auth, spendsmart_category, spendsmart_expense
+#
+#  After Render creates the services from this blueprint, you MUST:
+#    1.  Fill in the DB_URL / DB_USERNAME / DB_PASSWORD env vars (marked 'sync: false')
+#    2.  Wait for spendsmart-eureka to deploy first, then copy its URL into
+#        the EUREKA_URL env var of the other 4 services
+# ============================================================================
+
+services:
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # 1. EUREKA SERVER
+  # ───────────────────────────────────────────────────────────────────────────
+  - type: web
+    name: spendsmart-eureka
+    runtime: docker
+    plan: free
+    region: oregon
+    rootDir: eureka-server
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /
+    autoDeploy: true
+    envVars:
+      - key: JAVA_OPTS
+        value: -Xms128m -Xmx400m -XX:+UseSerialGC
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # 2. AUTH SERVICE
+  # ───────────────────────────────────────────────────────────────────────────
+  - type: web
+    name: spendsmart-auth
+    runtime: docker
+    plan: free
+    region: oregon
+    rootDir: auth-service
+    dockerfilePath: ./Dockerfile
+    autoDeploy: true
+    envVars:
+      - key: JAVA_OPTS
+        value: -Xms128m -Xmx400m -XX:+UseSerialGC
+      - key: EUREKA_URL
+        sync: false                       # paste eureka URL after first deploy
+      - key: EUREKA_PREFER_IP
+        value: "false"
+      - key: EUREKA_NON_SECURE_ENABLED
+        value: "false"
+      - key: EUREKA_SECURE_ENABLED
+        value: "true"
+      - key: EUREKA_SECURE_PORT
+        value: "443"
+      - key: DB_URL
+        sync: false                       # jdbc:mysql://<host>:3306/spendsmart_auth?useSSL=true&...
+      - key: DB_USERNAME
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: JWT_SECRET
+        sync: false                       # use a strong 32-byte value (same in all services)
+      - key: JWT_EXPIRATION
+        value: "86400000"
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # 3. CATEGORY SERVICE
+  # ───────────────────────────────────────────────────────────────────────────
+  - type: web
+    name: spendsmart-category
+    runtime: docker
+    plan: free
+    region: oregon
+    rootDir: category-service
+    dockerfilePath: ./Dockerfile
+    autoDeploy: true
+    envVars:
+      - key: JAVA_OPTS
+        value: -Xms128m -Xmx400m -XX:+UseSerialGC
+      - key: EUREKA_URL
+        sync: false
+      - key: EUREKA_PREFER_IP
+        value: "false"
+      - key: EUREKA_NON_SECURE_ENABLED
+        value: "false"
+      - key: EUREKA_SECURE_ENABLED
+        value: "true"
+      - key: EUREKA_SECURE_PORT
+        value: "443"
+      - key: DB_URL
+        sync: false                       # jdbc:mysql://<host>:3306/spendsmart_category?...
+      - key: DB_USERNAME
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: JWT_SECRET
+        sync: false                       # SAME value as spendsmart-auth
+      - key: CACHE_TYPE
+        value: "simple"                  # in-memory; no Redis required
+      - key: BUDGET_SERVICE_URL
+        value: "http://disabled.local"   # budget-service not deployed; calls are try/caught
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # 4. EXPENSE SERVICE
+  # ───────────────────────────────────────────────────────────────────────────
+  - type: web
+    name: spendsmart-expense
+    runtime: docker
+    plan: free
+    region: oregon
+    rootDir: expense-service
+    dockerfilePath: ./Dockerfile
+    autoDeploy: true
+    envVars:
+      - key: JAVA_OPTS
+        value: -Xms128m -Xmx400m -XX:+UseSerialGC
+      - key: EUREKA_URL
+        sync: false
+      - key: EUREKA_PREFER_IP
+        value: "false"
+      - key: EUREKA_NON_SECURE_ENABLED
+        value: "false"
+      - key: EUREKA_SECURE_ENABLED
+        value: "true"
+      - key: EUREKA_SECURE_PORT
+        value: "443"
+      - key: DB_URL
+        sync: false                       # jdbc:mysql://<host>:3306/spendsmart_expense?...
+      - key: DB_USERNAME
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: JWT_SECRET
+        sync: false                       # SAME value as spendsmart-auth
+      - key: BUDGET_SERVICE_URL
+        value: "http://disabled.local"
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # 5. GATEWAY SERVICE  (public entry point — frontend talks to THIS service)
+  # ───────────────────────────────────────────────────────────────────────────
+  - type: web
+    name: spendsmart-gateway
+    runtime: docker
+    plan: free
+    region: oregon
+    rootDir: gateway-service
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /actuator/health
+    autoDeploy: true
+    envVars:
+      - key: JAVA_OPTS
+        value: -Xms128m -Xmx400m -XX:+UseSerialGC
+      - key: EUREKA_URL
+        sync: false
+      - key: EUREKA_PREFER_IP
+        value: "false"
+      - key: EUREKA_NON_SECURE_ENABLED
+        value: "false"
+      - key: EUREKA_SECURE_ENABLED
+        value: "true"
+      - key: EUREKA_SECURE_PORT
+        value: "443"
