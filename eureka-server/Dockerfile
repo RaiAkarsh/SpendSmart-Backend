@@ -5,12 +5,13 @@ WORKDIR /app
 COPY pom.xml .
 RUN mvn -B -q dependency:go-offline
 COPY src ./src
-RUN mvn -B -q -DskipTests package
+RUN mvn -B -q -DskipTests package \
+    && mv target/*.jar target/app.jar
 
 # ---------- Stage 2: runtime ----------
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
-COPY --from=build /app/target/*.jar app.jar
+COPY --from=build /app/target/app.jar app.jar
 # Render injects the PORT env var. Spring Boot will bind to it via -Dserver.port.
 # Keep JVM memory small to fit Render's 512 MB free tier.
 ENV JAVA_OPTS="-Xms128m -Xmx400m -XX:+UseSerialGC"
