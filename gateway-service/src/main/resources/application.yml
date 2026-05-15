@@ -96,7 +96,7 @@ spring:
         # ── AUTH SERVICE (8081) ────────────────────────────────────────────
         # Auth only has sub-paths (/auth/register, /auth/login) — no base POST
         - id: auth-service
-          uri: lb://auth-service
+          uri: ${AUTH_SERVICE_URI:lb://auth-service}
           predicates:
             - Path=/api/auth/**
           filters:
@@ -104,14 +104,14 @@ spring:
 
         # ── EXPENSE SERVICE (8082) ─────────────────────────────────────────
         - id: expense-service-base
-          uri: lb://expense-service
+          uri: ${EXPENSE_SERVICE_URI:lb://expense-service}
           predicates:
             - Path=/api/expenses
           filters:
             - RewritePath=/api/expenses, /expenses
 
         - id: expense-service
-          uri: lb://expense-service
+          uri: ${EXPENSE_SERVICE_URI:lb://expense-service}
           predicates:
             - Path=/api/expenses/**
           filters:
@@ -119,14 +119,14 @@ spring:
 
         # ── INCOME SERVICE (8083) ──────────────────────────────────────────
         - id: income-service-base
-          uri: lb://income-service
+          uri: ${INCOME_SERVICE_URI:lb://income-service}
           predicates:
             - Path=/api/incomes
           filters:
             - RewritePath=/api/incomes, /incomes
 
         - id: income-service
-          uri: lb://income-service
+          uri: ${INCOME_SERVICE_URI:lb://income-service}
           predicates:
             - Path=/api/incomes/**
           filters:
@@ -134,14 +134,14 @@ spring:
 
         # ── CATEGORY SERVICE (8084) ────────────────────────────────────────
         - id: category-service-base
-          uri: lb://category-service
+          uri: ${CATEGORY_SERVICE_URI:lb://category-service}
           predicates:
             - Path=/api/categories
           filters:
             - RewritePath=/api/categories, /categories
 
         - id: category-service
-          uri: lb://category-service
+          uri: ${CATEGORY_SERVICE_URI:lb://category-service}
           predicates:
             - Path=/api/categories/**
           filters:
@@ -149,14 +149,14 @@ spring:
 
         # ── BUDGET SERVICE (8085) ──────────────────────────────────────────
         - id: budget-service-base
-          uri: lb://budget-service
+          uri: ${BUDGET_SERVICE_URI:lb://budget-service}
           predicates:
             - Path=/api/budgets
           filters:
             - RewritePath=/api/budgets, /budgets
 
         - id: budget-service
-          uri: lb://budget-service
+          uri: ${BUDGET_SERVICE_URI:lb://budget-service}
           predicates:
             - Path=/api/budgets/**
           filters:
@@ -165,7 +165,7 @@ spring:
         # ── ANALYTICS SERVICE (8086) ───────────────────────────────────────
         # Analytics has no base-POST so only one route needed
         - id: analytics-service
-          uri: lb://analytics-service
+          uri: ${ANALYTICS_SERVICE_URI:lb://analytics-service}
           predicates:
             - Path=/api/analytics/**
           filters:
@@ -173,14 +173,14 @@ spring:
 
         # ── RECURRING SERVICE (8087) ───────────────────────────────────────
         - id: recurring-service-base
-          uri: lb://recurring-service
+          uri: ${RECURRING_SERVICE_URI:lb://recurring-service}
           predicates:
             - Path=/api/recurring
           filters:
             - RewritePath=/api/recurring, /recurring
 
         - id: recurring-service
-          uri: lb://recurring-service
+          uri: ${RECURRING_SERVICE_URI:lb://recurring-service}
           predicates:
             - Path=/api/recurring/**
           filters:
@@ -188,14 +188,14 @@ spring:
 
         # ── NOTIFICATION SERVICE (8088) ────────────────────────────────────
         - id: notification-service-base
-          uri: lb://notification-service
+          uri: ${NOTIFICATION_SERVICE_URI:lb://notification-service}
           predicates:
             - Path=/api/notifications
           filters:
             - RewritePath=/api/notifications, /notifications
 
         - id: notification-service
-          uri: lb://notification-service
+          uri: ${NOTIFICATION_SERVICE_URI:lb://notification-service}
           predicates:
             - Path=/api/notifications/**
           filters:
